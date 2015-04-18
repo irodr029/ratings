@@ -1,0 +1,206 @@
+---
+title: "Sovereign Ratings and the CDS spread: Data Notes"
+author:
+  - name: Ivan M. Rodriguez, Jr.
+    affiliation: Florida International University
+    email: imrodrig@fiu.edu
+date: 3 April 2015
+output: 
+  html_document:
+    number_sections: yes
+    theme: readable
+    toc: true
+---
+
+---
+
+This document is meant to be a short summary on the raw data that was compiled to create the analytical database for the CDS project. The sources and the dates of access will be documented along with the scripts that will merge and transform the data into the final product.
+
+The first step of our analysis will try and replicate Cantor and Packers *Determinants and Impact of Sovereign Credit Ratings* paper (Cantor Packer 1996).  The main model the paper tests is a classical lineaer regression model of the form
+$$
+Ratings  = \mathbf{x}' \boldsymbol{\beta}
+$$
+where $\mathbf{x}'$ is a vector of our regressors (with $1$ as the first element). The regressand is
+
+- **Ratings**: ratings as of $t$ (1995) assigned by Moody's or SP (average, separately, difference)
+
+and the regressors are:
+
+- **Per Capita Income**: measured by GNP per capita as of $t-1$ (1994)
+- **GDP Growth**: measured by an average annual GDP growth averaged for the past $t-4$ years (1991-1994)
+- **Inflation**: measured by average CPI averaged for the past $t-3$ years (1992-1994)
+- **Fiscal Balance**: measured by average annual government budget surplus relative to GDP averaged for the past $t-3$ years (1992-1994)
+- **External Balance**: measured by average annual current accout surplus relative to GDP averaged for the past $t-3$ years (1992-1994)
+- **External Debt**: measured by foreign currency debt relative to exports as of $t-1$ (1994)
+- **Economic Development**: IMF classification (indicator variable) as of $t$ (1995)
+- **Default History**: indicator variable that is 1 if the country has defaulted since 1970 (or last 25 year).
+
+The table summarizing the variables on page 40 of Cantor Packer 1996 has more detailed information on the variables. Once the summary statistics and original model parameters have been replicated, a CDS spread variable will be added.
+
+---
+
+# General Information on the Raw Data
+The raw data that will be used for the replication is based on the following three sources: 
+
+- The **macroeconomic variables** are from the World Bank's **World Development Indicators** (WDI) database
+- The **default history data** is from 2014 update building on AEJ Macro 2013 paper ***Sovereign Defaults: The Price of Haircuts***, by Juan Cruces and Christoph Trebesch, which can be found at https://sites.google.com/site/christophtrebesch/data
+- The **CDS spread data** and **ratings data** is from **Bloomberg**.
+
+## Macroeconomic Variables
+The major macroeconomic variables come from the [WDI](http://data.worldbank.org/data-catalog/world-development-indicators).  It represents the most current and accurate global development data available, and includes national, regional and global estimates. The World Bank has created an `R` package to allow automated queries into their databases. I use this package in order to simplify and automate the data collection process. The indicators downloaded can be found using the URL $http://data.worldbank.org/indicator/[indicator]$ and replacing $[indicator]$ with the variables indicator. For example, to view the original GDP per capita database from the world bank, the URL would be http://data.worldbank.org/indicator/NY.GDP.MKTP.CD
+
+### Indicators from WDI
+
+- [**GNI per Captia**](http://data.worldbank.org/indicator/NY.GNP.PCAP.CD): GNI per capita is the gross national income, converted to U.S. dollars using the World Bank Atlas method, divided by the midyear population. Corresponds to Cantor Packer 1996 variable **Per Capita Income**.
+    - Missing datapoints (only Argentina) was supplemented using the [**UN national account database**](http://unstats.un.org/unsd/snaama/dnllist.asp)
+- [**GDP Growth**](http://data.worldbank.org/indicator/NY.GDP.MKTP.KD.ZG): Annual percentage growth rate of GDP at market prices based on constant local currency. Corresponds to Cantor Packer 1996 variable **GDP Growth**.
+- [**Annual Inflation**](http://data.worldbank.org/indicator/FP.CPI.TOTL.ZG): Inflation as measured by the consumer price index reflects the annual percentage change in the cost to the average consumer of acquiring a basket of goods and services that may be fixed or changed at specified intervals, such as yearly. Corresponds to Cantor Packer 1996 variable **Inflation**.
+    - For certain countries, this information is unavailable. I use the annual inflation measured by the [**GDP deflator**](http://data.worldbank.org/indicator/NY.GDP.DEFL.KD.ZG). This inflation variable is measured by the annual growth rate of the GDP implicit deflator shows the rate of price change in the economy as a whole. The GDP implicit deflator is the ratio of GDP in current local currency to GDP in constant local currency.
+- [**Port Infrastructure**](http://data.worldbank.org/indicator/IQ.WEF.PORT.XQ): The Quality of Port Infrastructure measures business executives' perception of their country's port facilities. Scores range from 1 (port infrastructure considered extremely underdeveloped) to 7 (port infrastructure considered efficient by international standards). Will be converted to an indicator variable later. Corresponds to Cantor Packer 1996 variable **Economic Development**.
+    - **Minimum GNI per Capita - Alternative Definition of Development**: Downloaded the World Bank's definition of a developed country under the file name `dev_min.csv`. If a country's GNI per capita is greater than this number, the development indicator will be 1. This is what I use for the replication.
+- [**Current Account Surplus**](http://data.worldbank.org/indicator/BN.CAB.XOKA.GD.ZS): Current account balance is the sum of net exports of goods and services, net primary income, and net secondary income as a percentage of GDP. Corresponds to Cantor Packer 1996 variable **External Balance**.
+    - Some data points missing. Supplement using 2014 [**WEO data**](https://www.imf.org/external/pubs/ft/weo/2014/02/weodata/index.aspx) from the IMF. The variable used is `BCA_NGDPD - Current Account (%GDP)`
+- [**Central Government Surplus**](http://data.worldbank.org/indicator/GC.BAL.CASH.GD.ZS): Cash surplus or deficit is revenue (including grants) minus expense, minus net acquisition of nonfinancial assets as a percentage of GDP. Corresponds to Cantor Packer 1996 variable **Fiscal Balance**.
+    - Some data points missing. Supplement using 2014 [**WEO data**](https://www.imf.org/external/pubs/ft/weo/2014/02/weodata/index.aspx) from the IMF. The variable used is `GGXCNL_NGDP - Fiscal Balance (%GDP)`
+- [**Exports**](http://data.worldbank.org/indicator/NE.EXP.GNFS.CD): Exports of goods and services represent the value of all goods and other market services provided to the rest of the world. Corresponds to denominator of the Cantor Packer 1996 variable **External Debt**.
+
+### External Debt
+The external debt variable is in a seperate World Bank database. In October 2014, the World Bank launched the new Quarterly External Debt Statistics (QEDS) SDDS database. The original data can be found at http://data.worldbank.org/data-catalog/quarterly-external-debt-statistics-ssds and the variable taken was `0059_T1_Gross External Debt Position`. This variable is used as the numerator of the Cantor Packer 1996 variable **External Debt**.
+
+When this is missing, I supplement with the [**external debt stocks**](http://data.worldbank.org/indicator/DT.DOD.DECT.CD) variable from the WDI.
+
+## Default History 
+The data is from 2014 update to the databse use in the AEJ Macro 2013 paper ***Sovereign Defaults: The Price of Haircuts***, by Juan Cruces and Christoph Trebesch, which can be found at https://sites.google.com/site/christophtrebesch/data.
+The sample covers the full universe of sovereign debt restructurings with foreign commercial creditors (banks and bondholders) from 1970 until 2010. Based on certain selection criteria, they identify 182 sovereign debt restructurings by 68 countries since 1978 (no restructurings occurred between 1970 and 1977).
+
+## Bloomberg Data
+
+### Ratings Data
+The ratings data comes from the Bloomberg database. Unfortunately, the database exported from Bloomberg is very messy, so it will need to be manually checked and updated.
+
+### CDS Spread Data
+The CDS data also comes from the Bloomberg database. There are many missing data points, will average the daily CDS spreads to annualize.
+
+#Replication
+
+```{r results='asis', echo=FALSE, warning=FALSE, message=FALSE}
+#For replication
+#Create data for replication
+
+#####Regression Data
+#This script creates data for regging
+#Packages for data cleaning
+library('WDI')
+library('reshape2')
+library('dplyr')
+library('lubridate')
+library('data.table')
+library('zoo')
+library('ggplot2')
+library('stargazer')
+
+#Define input and output locations
+loc_data_input <- "~/Desktop/Ratings/data/input"
+loc_data_output <- "~/Desktop/Ratings/data/output"
+
+#Read in all the input data files in working directory as data frames----
+setwd(loc_data_output)
+data <- read.csv('07_final.csv', sep = ',', stringsAsFactors=FALSE)
+
+setwd(loc_data_input)
+rating_indicator <- read.csv('ratings_indicator.csv', sep = ',', stringsAsFactors=FALSE)
+
+data <- left_join(data, rating_indicator, by = c('agency', 'ratings'))
+
+#If NA use 2nd data sources
+reg_data <- tbl_df(data) %>% transmute(
+  agency = agency, 
+  country  = country, 
+  iso2c = iso2c, 
+  year = year,
+  rating = ratings_indicator, 
+  CDS = lag_cds, 
+  GNI_cap = lag_GNIpercap,
+  GDP_grw = ma_GDPgrowth,
+  inf = ifelse(is.na(ma_inflation_cpi), ma_inflation_def, ma_inflation_cpi),
+  ext_bal = ifelse(is.na(lag_currentaccount), lag_current_account_WEO, lag_currentaccount),
+  fsc_bal = ifelse(is.na(ma_budget), ma_fiscal_balance_WEO, ma_budget),
+  ext_dbt = ifelse(is.na(external_debt), ext_debt_2/lag_export, external_debt), 
+  def = dflt, 
+  dev = dvlp_wb
+) %>%
+  filter(complete.cases(.))
+
+#Separate S&P and Moody's
+repl_SP <- filter(reg_data, year == "2012", agency == "S&P")
+repl_MD <- filter(reg_data, year == "2012", agency == "Moody's")
+
+#Create average data
+dat <- select(reg_data, agency, country, iso2c, year, rating)
+dat <- dcast(dat, iso2c + country + year ~ agency)
+colnames(dat)[4] <- 'Moodys'
+colnames(dat)[5] <- 'SP'
+dat <- mutate(dat, Difference = Moodys - SP, 
+              Average = (Moodys + SP)/2)
+dat <- melt(dat, id=c("iso2c","country", "year"))
+colnames(dat)[4] <- 'agency'
+colnames(dat)[5] <- 'rating'
+
+dat1 <- reg_data %>%
+  filter(agency == "S&P") %>%
+  select(-agency, -rating)
+
+dat2 <- left_join(dat, dat1, by=c('iso2c', 'country', 'year'))
+
+rep_data <- filter(dat2, year == 2012)
+rep_results <- group_by(rep_data, agency) %>%
+  do(model = lm(rating ~ log(GNI_cap) + GDP_grw + log(100+inf) + ext_bal + fsc_bal + ext_dbt + def + dev, data = .))
+
+stargazer(rep_results[[2]], title = 'Replication', type = 'html', column.labels=c("Moody's","S&P", "Diff", "Avg"))
+```
+
+
+#Adding CDS Spreads into the Mix
+
+## Cross-sectional Results - Univariate (*PRELIMINARY*)
+```{r results='asis', echo=FALSE, warning=FALSE}
+
+#Results - Crossectional Regression by Agency
+results_uni <- group_by(reg_data, agency, year) %>%
+  do(model = lm(rating ~  log(CDS), data = .))
+
+stargazer(results_uni[[3]], title = 'Univariate', type = 'html',
+          column.labels=c("Moody's 2008","Moody's 2009", "Moody's 2010", "Moody's 2011", "Moody's 2012",
+                          "S&P 2008", "S&P 2009", "S&P 2010", "S&P 2011", "S&P 2012"))
+```
+
+## Cross-sectional Results - Multivariate (*PRELIMINARY*)
+
+```{r results='asis', echo=FALSE, warning=FALSE}
+
+#Results - Crossectional Regression by Agency
+results_multi <- group_by(reg_data, agency, year) %>%
+  do(model = 
+    lm(rating ~ log(GNI_cap) + GDP_grw + log(100+inf) + ext_bal + fsc_bal + ext_dbt + def + dev + log(CDS), 
+               data = .))
+
+stargazer(results_multi[[3]], title = 'Multivariate', type = 'html',
+          column.labels=c("Moody's 2008","Moody's 2009", "Moody's 2010", "Moody's 2011", "Moody's 2012",
+                          "S&P 2008", "S&P 2009", "S&P 2010", "S&P 2011", "S&P 2012"))
+```
+
+## Cross-sectional Results - CDS contain infor about Macro
+
+```{r results='asis', echo=FALSE, warning=FALSE}
+
+#Results - Crossectional Regression by Agency
+results_multi <- group_by(reg_data, agency, year) %>%
+  do(model = 
+    lm(log(CDS) ~ log(GNI_cap) + GDP_grw + log(100+inf) + ext_bal + fsc_bal + ext_dbt + def + dev, 
+               data = .))
+
+stargazer(results_multi[[3]], title = 'Multivariate', type = 'html',
+          column.labels=c("Moody's 2008","Moody's 2009", "Moody's 2010", "Moody's 2011", "Moody's 2012",
+                          "S&P 2008", "S&P 2009", "S&P 2010", "S&P 2011", "S&P 2012"))
+```
+

@@ -1,0 +1,283 @@
+---
+title: "Data Notes"
+author: "Ivan Rodriguez"
+date: "March 10, 2015"
+output: pdf_document
+---
+---
+##Abstract
+This document is meant to be a short summary on the raw data that was compiled to create the analytical database for the CDS project. The sources and the dates of access will be documented along with the scripts that will merge and transform the data into the final product.
+
+##Status
+
+- **3/10/2015** - Plan to add in ratings data
+- **3/9/2015** - Creation of this document from prior scripts - does not include **ratings** or **spread** data
+
+##Summary of Project
+The first step of our analysis will try and replicate Cantor and Packers *Determinants and Impact of Sovereign Credit Ratings* paper (Cantor Packer 1996).  The main model the paper tests is a classical lineaer regression model of the form
+$$
+Ratings  = \mathbf{x}' \boldsymbol{\beta}
+$$
+where $\mathbf{x}'$ is a vector of our regressors (with $1$ as the first element). The regressand is
+
+- **Ratings**: ratings as of $t$ assigned by Moody's or SP (average, separately, difference)
+
+and the regressors are:
+
+- **Per Capita Income**: measured by GNP per capita as of $t-1$
+- **GDP Growth**: measured by an average annual GDP growth averaged for the past $t-3$ years
+- **Inflation**: measured by average CPI averaged for the past $t-2$ years
+- **Fiscal Balance**: measured by average annual government budget surplus relative to GDP averaged for the past $t-2$ years
+- **External Balance**: measured by average annual current accout surplus relative to GDP averaged for the past $t-2$ years
+- **External Debt**: measured by foreign currency debt relative to exports as of $t-1$
+- **Economic Development**: IMF classification (indicator variable) as of $t$
+- **Default History**: indicator variable that is 1 if the country has defaulted since 1970.
+
+The table summarizing the variables on page 40 of Cantor Packer 1996 has more detailed information on the variables. Once the summary statistics and original model parameters have been replicated, a CDS spread variable will be added.
+
+#General Information on the Raw Data
+The raw data that will be used for the replication is based on the following three sources: 
+
+- The **macroeconomic variables** are from the World Bank's **World Development Indicators** (WDI) database
+- The **default history data** is from 2014 update building on AEJ Macro 2013 paper ***Sovereign Defaults: The Price of Haircuts***, by Juan Cruces and Christoph Trebesch, which can be found at https://sites.google.com/site/christophtrebesch/data
+- The **spread data** (both bond and CDS) is from **Bloomberg**.
+
+##Macroeconomic Variables
+The major macroeconomic variables come from the [WDI](http://data.worldbank.org/data-catalog/world-development-indicators).  It represents the most current and accurate global development data available, and includes national, regional and global estimates. The World Bank has created an `R` package to allow automated queries into their databases. I use this package in order to simplify and automate the data collection process. The indicators downloaded can be found using the URL $http://data.worldbank.org/indicator/[indicator]$ and replacing $[indicator]$ with the variables indicator. For example, to view the original GDP per capita database from the world bank, the URL would be http://data.worldbank.org/indicator/NY.GDP.MKTP.CD
+
+###Indicators from WDI
+
+- [**GNI per Captia**](http://data.worldbank.org/indicator/NY.GNP.PCAP.CD): GNI per capita is the gross national income, converted to U.S. dollars using the World Bank Atlas method, divided by the midyear population. Corresponds to Cantor Packer 1996 variable **Per Capita Income**.
+- [**GDP Growth**](http://data.worldbank.org/indicator/NY.GDP.MKTP.KD.ZG): Annual percentage growth rate of GDP at market prices based on constant local currency. Corresponds to Cantor Packer 1996 variable **GDP Growth**.
+- [**Annual Inflation**](http://data.worldbank.org/indicator/FP.CPI.TOTL.ZG): Inflation as measured by the consumer price index reflects the annual percentage change in the cost to the average consumer of acquiring a basket of goods and services that may be fixed or changed at specified intervals, such as yearly. Corresponds to Cantor Packer 1996 variable **Inflation**.
+- [**Port Infrastructure**](http://data.worldbank.org/indicator/IQ.WEF.PORT.XQ): The Quality of Port Infrastructure measures business executives' perception of their country's port facilities. Scores range from 1 (port infrastructure considered extremely underdeveloped) to 7 (port infrastructure considered efficient by international standards). Will be converted to an indicator variable later. Corresponds to Cantor Packer 1996 variable **Economic Development**.
+- [**Current Account Surplus**](http://data.worldbank.org/indicator/BN.CAB.XOKA.GD.ZS): Current account balance is the sum of net exports of goods and services, net primary income, and net secondary income as a percentage of GDP. Corresponds to Cantor Packer 1996 variable **External Balance**.
+- [**Central Government Surplus**](http://data.worldbank.org/indicator/GC.BAL.CASH.GD.ZS): Cash surplus or deficit is revenue (including grants) minus expense, minus net acquisition of nonfinancial assets as a percentage of GDP. Corresponds to Cantor Packer 1996 variable **Fiscal Balance**.
+- [**Exports**](http://data.worldbank.org/indicator/NE.EXP.GNFS.CD): Exports of goods and services represent the value of all goods and other market services provided to the rest of the world. Corresponds to denominator of the Cantor Packer 1996 variable **External Debt**.
+
+###External Debt
+The external debt variable is in a seperate World Bank database. In October 2014, the World Bank launched the new Quarterly External Debt Statistics (QEDS) SDDS database. The original data can be found at http://data.worldbank.org/data-catalog/quarterly-external-debt-statistics-ssds and the variable taken was **0059_T1_Gross External Debt Position**. This variable is used as the numerator of the Cantor Packer 1996 variable **External Debt**.
+
+##Default History 
+
+The data is from 2014 update to the databse use in the AEJ Macro 2013 paper ***Sovereign Defaults: The Price of Haircuts***, by Juan Cruces and Christoph Trebesch, which can be found at https://sites.google.com/site/christophtrebesch/data.
+The sample covers the full universe of sovereign debt restructurings with foreign commercial creditors (banks and bondholders) from 1970 until 2010. Based on certain selection criteria, they identify 182 sovereign debt restructurings by 68 countries since 1978 (no restructurings occurred between 1970 and 1977).																	
+
+#Data Manipulation
+##Downloading the World Bank Indicators
+
+
+```{r}
+#This script downloads the raw data files for the variables
+#from the World Bank and saves them as .csv
+library('WDI') #load WDI function to download WB's World Development Indicators
+
+#Sets the working directory to save our input files
+setwd("~/Documents/projects/research/201502_cds/cds/data/input")
+
+#Per Capita Income ----
+#Download the per Capita GDP
+GDPpercap <- WDI(indicator = "NY.GDP.MKTP.CD", start=1960, end=2014)
+names(GDPpercap)[3] <- "GDPpercap"
+write.csv(GDPpercap, file="GDPpercap.csv", row.names=FALSE)
+
+#Download the per Capita GNI
+GNIpercap <- WDI(indicator = "NY.GNP.PCAP.CD", start=1960, end=2014)
+names(GNIpercap)[3] <- "GNIpercap"
+write.csv(GNIpercap, file="GNIpercap.csv", row.names=FALSE)
+
+#GDP growth ----
+#Download the annual percentage growth of GDP
+GDPgrowth <- WDI(indicator = "NY.GDP.MKTP.KD.ZG", start=1960, end=2014)
+names(GDPgrowth)[3] <- "GDPgrowth"
+write.csv(GDPgrowth, file="GDPgrowth.csv", row.names=FALSE)
+
+#Inflation ----
+#Download the annual inflation
+inflation <- WDI(indicator = "FP.CPI.TOTL.ZG", start=1960, end=2014)
+names(inflation)[3] <- "inflation"
+write.csv(inflation, file="inflation.csv", row.names=FALSE)
+
+#Economic Development ----
+#Download port infrastructure data
+development <- WDI(indicator = "IQ.WEF.PORT.XQ", start=1960, end=2014)
+names(development)[3] <- "development"
+write.csv(development, file="development.csv", row.names=FALSE)
+
+#External Balance ----
+#Download current account surplus as a percentage of GDP
+currentaccount <- WDI(indicator = "BN.CAB.XOKA.GD.ZS", start=1960, end=2014)
+names(currentaccount)[3] <- "currentaccount"
+write.csv(currentaccount, file="current_account.csv", row.names=FALSE)
+
+#Fiscal Balance ----
+#Download central government budget as a percentage of GDP
+budget <- WDI(indicator = "GC.BAL.CASH.GD.ZS", start=1960, end=2014)
+names(budget)[3] <- "budget"
+write.csv(budget, file="budget.csv", row.names=FALSE)
+
+#External debt ----
+#Download exports of goods and services in current dollars
+export <- WDI(indicator = "NE.EXP.GNFS.CD", start=1960, end=2014)
+names(export)[3] <- "export"
+write.csv(export, file="export.csv", row.names=FALSE)
+```
+
+##Data Cleaning and Merging
+
+```{r}
+#Load necessary packages for data manipulation
+library("plyr")
+library("reshape2")
+library("dplyr")
+library("lubridate")
+```
+
+All the raw files are in an input folder, this loop takes all the files in that input folder and imports them as data tables, which is the primary data structure in `R`
+
+```{r}
+setwd("~/Documents/projects/research/201502_cds/cds/data/input") 
+#Read in all the data files in working directory as data frames----
+files <- dir()
+for (file in files){
+  perpos <- which(strsplit(file, "")[[1]]==".")
+  assign(
+    gsub(" ","",substr(file, 1, perpos-1)), 
+    read.csv(paste(file,sep=""), stringsAsFactors=FALSE))
+}
+```
+
+The two files that were not downloaded directly from the WDI database do not have the correct 2 letter country codes. The external debt data file has the 3 letter country code while the default history file was converted from an excel file to a csv. It originally had a 3 letter country code which did not fully correspond with the iso3c standard. It was manually changed to the iso3c standard when the csv conversion took place. 
+
+```{r}
+#Two data frames don't have iso2c codes, so merging them with code vector
+code_country <- select(as.data.frame(WDI_data$country), iso3c, iso2c)
+
+defaulthistory <- inner_join(defaulthistory, code_country, by = c("iso3c"))
+externaldebt <- inner_join(externaldebt, code_country, by = c("iso3c"))
+```
+
+Next, we will get the external debt data into the correct shape needed to be merged with the other files. It's original structure is the rows are countries while the columns are quarter/year. First, we will "melt" the table into having each country and quarter/year as rows with the external debt as the only column. Some cleanup will then take place. Finally, since the data is quarterly, the annual external debt amount will be the average over the four quarters. 
+
+```{r, warning=FALSE}
+#Clean up external debt
+externaldebt <- externaldebt %>%
+  melt(value.name = "ext_debt") %>%
+  mutate(year = as.integer(substr(variable, 2, 5))) %>%
+  select(iso2c, year, ext_debt)
+
+externaldebt$iso2c <- as.character(externaldebt$iso2c)
+externaldebt <- aggregate(externaldebt, by=list(externaldebt$year, externaldebt$iso2c), 
+                          FUN=mean, na.rm=TRUE)
+externaldebt <- select(externaldebt, year = Group.1, iso2c = Group.2, ext_debt)
+```
+
+Next, all the other data sets are cleaned. Mostly just selecting the variables we are interested in and renaming them.
+
+```{r}
+#Cleanup everything else
+budget <- select(budget, -country)
+current_account <- select(current_account, -country)
+defaulthistory <- select(defaulthistory, iso2c, year, default_date = date)
+development <- select(development, -country)
+export <- select(export, -country)
+GDPgrowth <- select(GDPgrowth, -country)
+GDPpercap <- select(GDPpercap, -country)
+GNIpercap <- select(GNIpercap, -country)
+inflation <- select(inflation, -country)
+```
+
+All of these data sets are then merged together. 
+
+```{r}
+#Merge data
+data <- inner_join(GDPpercap, GDPgrowth, by = c("iso2c","year"))
+data <- inner_join(data, inflation, by = c("iso2c","year"))
+data <- inner_join(data, development, by = c("iso2c","year"))
+data <- inner_join(data, GNIpercap, by = c("iso2c","year"))
+data <- inner_join(data, export, by = c("iso2c","year"))
+data <- inner_join(data, current_account, by = c("iso2c","year"))
+data <- inner_join(data, budget, by = c("iso2c","year"))
+data <- left_join(data, externaldebt, by = c("iso2c","year"))
+data <- left_join(data, defaulthistory, by = c("iso2c","year"))
+
+#Merge country info
+country <- select(as.data.frame(WDI_data$country), iso2c, country)
+data <- left_join(data, country, by = c("iso2c"))
+```
+
+Then the data set is exported into the output folder. 
+
+```{r}
+#Finalize data set ---
+setwd("~/Documents/projects/research/201502_cds/cds/data/output")
+write.csv(data, file="data.csv", row.names=FALSE)
+```
+
+##Finalizing Data Prior to Ratings Data
+
+Now, the two indicator variables, **Default History** and **Development Indicator**, are created. The **External Debt** variable is also finalized. Then we select the variables of interest to use and *voila*! We have the analytical database and can start our exploratory analysis.
+
+```{r}
+#Create indicators
+#Default - if country defaulted after 1990, output 1. 
+#Development - if port index > 3.5, output 1.
+setwd("~/Documents/projects/research/201502_cds/cds/data/output")
+data <- read.csv(file = "data.csv", head = TRUE, sep = ",",stringsAsFactors=FALSE)
+
+data$default_date <- as.Date(data$default_date, "%m/%d/%y")
+default_include <- data[year(data$default_date) > 1990,1]
+
+data1 <- data %>%
+  mutate(development_indicator = ifelse(development < 3.6 | is.na(development),0,1),
+         default_indicator = ifelse(iso2c %in% default_include, 1, 0),
+         external_debt = ext_debt/export * 100) %>%
+  select(country, iso2c, year, GNIpercap, GDPgrowth, inflation, fiscal_balance = budget, 
+         external_balance = currentaccount, external_debt, 
+         development_indicator, default_indicator)
+
+#Only complete cases
+data1 <- tbl_df(data1)
+data1 <- data1[complete.cases(data1),]
+
+#Selecting variable of interest only
+write.csv(data1, file="database_priorRatings.csv", row.names=FALSE)
+```
+
+##Exploratory Analysis
+
+###How many complete cases do we have in each individual year?
+
+```{r}
+dat <- data1 %>%
+  group_by(year) %>%
+  summarise(freq = n())
+dat
+```
+
+###What is the composition of these completed cases?
+
+```{r}
+dat <- data1 %>%
+  group_by(country) %>%
+  summarise(freq = n(),
+            min_year = min(year),
+            max_year = max(year))
+dat
+```
+
+##Incorporating Ratings Data
+Firstly, in order to accomodate the two ratings agencies, we will extend our prior database.
+
+```{r}
+data2 <- data1 #duplicating data frame
+
+#create differenct rating agencies for both tables
+data1$agency <- "S&P"
+data2$agency <- "Moody's"
+
+#combining both tables with the different ratings agencies
+data1 <- rbind(data1,data2)
+head(data1)
+```
+

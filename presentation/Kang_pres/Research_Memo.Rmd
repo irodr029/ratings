@@ -1,0 +1,119 @@
+---
+title: "Research Memo: Credit Default Swap Spreads and Sovereign Ratings"
+author: Ivan M. Rodriguez, Jr.
+output: 
+  pdf_document:
+    number_sections: true
+fontsize: 10pt
+geometry: margin=1in
+documentclass: article
+header-includes:
+   - \setlength\parindent{24pt}
+abstract: This research memo examines the relation between sovereign debt ratings and credit default swap spreads. We find that the information contained in the average credit default swap spread over the last two years is a major determinant in explaining the rating agencies' factor weightings. Through the combined use of univariate and multivariate cross-sectional OLS regressions, we find that over time, the power of the spread to single-handedly determine sovereign ratings has fallen due to reverberations from financial crisis which lead to the euro-zone crisis.
+---
+
+What factors affect sovereign debt ratings? Packer and Cantor (1996) found six macroeconomic variables that explain an overwhelming amount of the various agencies ratings. Maltritz and Molchanov (2013) applied Bayesian model averaging which  over 30 macroeconomic and political variables in explaing rating returns. Their results match with Packer and Cantor in that some macroeconomic variables were found to be important while finding that political variables have very low influence. However, there does not seem to be literature linking credit default swap spreads as an explaining variable to ratings. 
+
+Intuitively, it appears that credit default swaps (which can be loosely thought of as insurance against sovereign default) should contain information about the "pricing" of a countries debt. This paper explores the empirical linkage between these two variables, albeit at a rather limited scope. Firstly, we replicate the regression function used by Packer and Cantor (1996).  The variables they include in their multivariate OLS regression can be see in table 1. The results of the replication can be found in table 2.
+
+When we 
+
+\newpage
+
+#Packer and Cantor Variable Table
+
+|-----------------------  |------ |---------------  |-------------------------------------------------------- |
+| Variable                | Unit   |   $\mathbb{E}(Sign)$    	| Definition                                             	|
+|-----------------------	|------	|---------------	|--------------------------------------------------------	|
+| GNI                   	| $    	| +             	| Per capita income at $t-1$                            	|
+| GDP growth            	| %    	| +             	| Average GDP growth from $t-1$ to $t-4$                 	|
+| Inflation             	| %    	| -             	| Average inflation from $t-1$ to $t-3$                  	|
+| Fiscal Balance        	| %    	| +             	| Average fiscal balance relative to GDP from $t-1$ to $t-3$ |
+| External Balance      	| %    	| +             	| Average current account surplus realtive to GDP $t-1$ to $t-3$ |      	|
+| External Debt         	| %    	| -             	| Foreign currency debt relative exports at $t-1$          	|
+| Development Indicator 	| 1/0  	| +             	| IMF classification at $t$                              	|
+| Default Indicator     	| 1/0  	| -             	| Default in the last 25 years                           	|
+|-----------------------  |------ |---------------  |-------------------------------------------------------- |
+
+Table:  Variables used by Cantor and Packer (1996).
+
+\newpage
+
+#Replication Results
+
+```{r, echo = FALSE, warning=FALSE, message=FALSE}
+#####Regression Data
+#This script creates data for regging
+#Packages for data cleaning
+library('WDI')
+library('reshape2')
+library('dplyr')
+library('lubridate')
+library('data.table')
+library('zoo')
+library('ggplot2')
+library('stargazer')
+
+#Define input and output locations
+loc_data_input <- "~/Desktop/Ratings/data/input"
+loc_data_output <- "~/Desktop/Ratings/data/output"
+
+#Read in all the input data files in working directory as data frames----
+setwd(loc_data_output)
+data <- read.csv('07_final.csv', sep = ',', stringsAsFactors=FALSE)
+
+setwd(loc_data_input)
+rating_indicator <- read.csv('ratings_indicator.csv', sep = ',', stringsAsFactors=FALSE)
+
+data <- left_join(data, rating_indicator, by = c('agency', 'ratings'))
+
+#If NA use 2nd data sources
+reg_data <- tbl_df(data) %>% transmute(
+  agency = agency, 
+  country  = country, 
+  iso2c = iso2c, 
+  year = year,
+  rating = ratings_indicator, 
+  CDS = lag_cds, 
+  GNI_cap = lag_GNIpercap,
+  GDP_grw = ma_GDPgrowth,
+  inf = ifelse(is.na(ma_inflation_cpi), ma_inflation_def, ma_inflation_cpi),
+  ext_bal = ifelse(is.na(lag_currentaccount), lag_current_account_WEO, lag_currentaccount),
+  fsc_bal = ifelse(is.na(ma_budget), ma_fiscal_balance_WEO, ma_budget),
+  ext_dbt = ifelse(is.na(external_debt), ext_debt_2/lag_export, external_debt), 
+  def = dflt, 
+  dev = dvlp_wb
+) %>%
+  filter(complete.cases(.))
+```
+
+```{r runa, echo=FALSE, warning=FALSE}
+#For replication
+#Create data for replication
+#Separate S&P and Moody's
+repl_SP <- filter(reg_data, year == "2012", agency == "S&P")
+repl_MD <- filter(reg_data, year == "2012", agency == "Moody's")
+
+#Create average data
+dat <- select(reg_data, agency, country, iso2c, year, rating)
+dat <- dcast(dat, iso2c + country + year ~ agency)
+colnames(dat)[4] <- 'Moodys'
+colnames(dat)[5] <- 'SP'
+dat <- mutate(dat, Difference = Moodys - SP, 
+              Average = (Moodys + SP)/2)
+dat <- melt(dat, id=c("iso2c","country", "year"))
+colnames(dat)[4] <- 'agency'
+colnames(dat)[5] <- 'rating'
+
+dat1 <- reg_data %>%
+  filter(agency == "S&P") %>%
+  select(-agency, -rating)
+
+dat2 <- left_join(dat, dat1, by=c('iso2c', 'country', 'year'))
+
+rep_data <- filter(dat2, year == 2012)
+rep_results <- group_by(rep_data, agency) %>%
+  do(model = lm(rating ~ log(GNI_cap) + GDP_grw + log(inf) + ext_bal + fsc_bal + ext_dbt + def + dev, data = .))
+
+stargazer(rep_results[[2]], title = 'Replication', type = 'text', column.labels=c("Moody's","S&P", "Diff", "Avg"))
+```
