@@ -17,7 +17,7 @@ library('stats')
 
 #Define input and output locations
 loc_data_output <- "~/Desktop/Ratings/data/output"
-loc_results_output <- "~/Desktop/Ratings/analysis/output"
+loc_results_output <- "~/Desktop/Ratings/analysis/output_data"
 
 #Read in regression file in working directory as data frame----
 setwd(loc_data_output)
@@ -123,15 +123,25 @@ str(data.plot)
 ggpairs(data.plot, columns = 5:14, colour = 'year', alpha = 0.20, lower = list(continuous = "smooth", combo = "facetdensity"))
 
 ##########################
-#Correlations
-correl_data <- group_by(reg_data, year) %>% select(-iso2c, -country, -agency, -year, -rating) %>%
-  do(correl = cor(.))
+#Correlations - yearly
+correl_year <- group_by(reg_data, year) %>% select(-iso2c, -country, -agency, -year, -rating) %>%
+  do(correl = rcorr(as.matrix(.), type='pearson'))
 
-#Need to manually update years (2007-2012)
-stargazer(correl_data[[2]], type = 'text', title = "Correlation (2007-2012)",out = 'correl_year.txt')
-stargazer(cor(select(reg_data, -iso2c, -country, -agency, -year, -rating)), type = 'text', title = "Correlation",out = 'correl.txt')
+##export yearly correlations
+test <- correl_year[[2]]
+names(test) <- c('2007', '2008', '2009', '2010', '2011', '2012')
+sink("correl_year.txt")
+test
+sink()
 
+#Correlation - overall
+d <- select(reg_data, -iso2c, -country, -agency, -year, -rating)
+correl <- rcorr(as.matrix(d), type='pearson')
 
+##export overall correlations
+sink("correl_overall.txt")
+correl
+sink()
 
 ##Correlation Plot - Overall
 abbreviateSTR <- function(value, prefix){  # format string more concisely
@@ -156,6 +166,8 @@ abbreviateSTR <- function(value, prefix){  # format string more concisely
 d <- select(reg_data, -iso2c, -country, -agency, -year, -rating)
 
 cormatrix = rcorr(as.matrix(d), type='pearson')
+stargazer(cormatrix, type = 'text', summary = FALSE)
+
 cordata = melt(cormatrix$r)
 cordata$labelr = abbreviateSTR(melt(cormatrix$r)$value, 'r')
 cordata$labelP = abbreviateSTR(melt(cormatrix$P)$value, 'P')
